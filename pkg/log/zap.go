@@ -11,6 +11,68 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2" // Include this for lumberjack
 )
 
+type LogOutputFormat int
+
+const (
+	LogOutputFormatJson LogOutputFormat = iota
+	LogOutputFormatPlain
+)
+
+// DefaultOutputFormat is the default format that will be used for logging output.
+const DefaultOutputFormat = LogOutputFormatJson
+
+// logFormatEncodingMapping is a llist of stringified format values, indexable by a LogOutputFormat
+var logFormatEncodingMapping = []string{"json", "plain"}
+
+// ValidLogFormatOptions returns a stringified list of valid options, suitable for use in documentation
+func ValidLogFormatOptions() string {
+	output := ""
+	for idx, logFormat := range logFormatEncodingMapping {
+		output += logFormat
+		if idx != len(logFormatEncodingMapping)-1 {
+			output += ", "
+		}
+	}
+
+	return output
+}
+
+func (l LogOutputFormat) String() string {
+	return logFormatEncodingMapping[l]
+}
+
+func (l LogOutputFormat) Encoder(encoderCfg zapcore.EncoderConfig) zapcore.Encoder {
+	var encoder zapcore.Encoder
+	switch l {
+	case LogOutputFormatJson:
+		encoder = zapcore.NewJSONEncoder(encoderCfg)
+	case LogOutputFormatPlain:
+		encoder = zapcore.NewConsoleEncoder(encoderCfg)
+	}
+
+	return encoder
+}
+
+// FromStringOrDefault attempts to parse a user input into a LogOutputFormat.
+// If the given input is unparseable or invalid, this file prints an error to stdout and returns DefaultOutputFormat.
+func FromStringOrDefault(input string) LogOutputFormat {
+	// Strip whitespace and convert to lowercase
+	normalized := strings.ToLower(strings.TrimSpace(input))
+
+	// Attempt to match against a known format
+	for outputFormatIdx, outputFormat := range logFormatEncodingMapping {
+		if strings.EqualFold(outputFormat, normalized) {
+			return LogOutputFormat(outputFormatIdx)
+		}
+	}
+
+	// Unable to match, print error and use default
+	// Cannot print using a logger because logging is not yet set up.
+	fmt.Printf("unable to parse logging format \"%s\", defaulting to \"%s\"\n", input, DefaultOutputFormat.String())
+
+	return DefaultOutputFormat
+}
+
 // Config is the configuration for the logger.
 type Config struct {
 	// StdOutLogLevel is the log level for the standard out logger.
@@ -31,6 +93,10 @@ type Config struct {
 	Compress bool
 	// LogSamplePeriod is the duration in which we de-dupe identical log messages.
 	LogSamplePeriod time.Duration
+  // StdOutOutputFormat is the output format for a the file logger
+	StdOutOutputFormat LogOutputFormat
+	// FileOutputFormat is the output format for a the file logger
+	FileOutputFormat LogOutputFormat
 }
 
 // NewDefaultConfig creates a default configuration for the logger.
@@ -44,7 +110,9 @@ func NewDefaultConfig() Config {
 		MaxBackups:      1,
 		MaxAge:          3, // 3 days
 		Compress:        false,
-		LogSamplePeriod: 10 * time.Second,
+		StdOutOutputFormat: DefaultOutputFormat,
+		FileOutputFormat:   DefaultOutputFormat,
+    LogSamplePeriod: 10 * time.Second,
 	}
 }
 
@@ -71,7 +139,7 @@ func NewLogger(config Config) *zap.Logger {
 		}
 
 		fileCore = zapcore.NewCore(
-			zapcore.NewJSONEncoder(encoderCfg),
+			config.FileOutputFormat.Encoder(encoderCfg),
 			fileSyncer,
 			logLevel,
 		)
@@ -86,7 +154,7 @@ func NewLogger(config Config) *zap.Logger {
 
 	// Setup the primary output to always include os.Stderr
 	stdCore := zapcore.NewCore(
-		zapcore.NewJSONEncoder(encoderCfg),
+		config.StdOutOutputFormat.Encoder(encoderCfg),
 		zapcore.Lock(os.Stderr),
 		logLevel,
 	)

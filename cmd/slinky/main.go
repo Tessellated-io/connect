@@ -68,7 +68,9 @@ var (
 	runPprof            bool
 	profilePort         string
 	logLevel            string
-	fileLogLevel        string
+	logStdoutOutputFormat string
+	logFileOutputFormat   string
+  fileLogLevel        string
 	writeLogsTo         string
 	marketMapEndPoint   string
 	maxLogSize          int
@@ -131,6 +133,20 @@ func init() {
 		"",
 		"info",
 		"Log level (debug, info, warn, error, dpanic, panic, fatal).",
+	)
+	rootCmd.Flags().StringVarP(
+		&logStdoutOutputFormat,
+		"log-std-out-format",
+		"",
+		log.DefaultOutputFormat.String(),
+		fmt.Sprintf("Log output format for stdout (%s)", log.ValidLogFormatOptions()),
+	)
+	rootCmd.Flags().StringVarP(
+		&logFileOutputFormat,
+		"log-file-format",
+		"",
+		log.DefaultOutputFormat.String(),
+		fmt.Sprintf("Log output format for file (%s)", log.ValidLogFormatOptions()),
 	)
 	rootCmd.Flags().StringVarP(
 		&fileLogLevel,
@@ -265,6 +281,8 @@ func runOracle() error {
 	logCfg.MaxBackups = maxBackups
 	logCfg.MaxAge = maxAge
 	logCfg.Compress = !disableCompressLogs
+	logCfg.StdOutOutputFormat = log.FromStringOrDefault(logStdoutOutputFormat)
+	logCfg.FileOutputFormat = log.FromStringOrDefault(logFileOutputFormat)
 
 	// Build logger.
 	logger := log.NewLogger(logCfg)
