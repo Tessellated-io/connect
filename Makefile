@@ -21,6 +21,9 @@ USE_CORE_MARKETS ?= true
 USE_RAYDIUM_MARKETS ?= false
 USE_UNISWAPV3_BASE_MARKETS ?= false
 USE_COINGECKO_MARKETS ?= false
+USE_COINMARKETCAP_MARKETS ?= false
+USE_OSMOSIS_MARKETS ?= false
+USE_POLYMARKET_MARKETS ?= false
 SCRIPT_DIR := $(CURDIR)/scripts
 DEV_COMPOSE ?= $(CURDIR)/contrib/compose/docker-compose-dev.yml
 
@@ -37,6 +40,9 @@ export USE_CORE_MARKETS ?= $(USE_CORE_MARKETS)
 export USE_RAYDIUM_MARKETS ?= $(USE_RAYDIUM_MARKETS)
 export USE_UNISWAPV3_BASE_MARKETS ?= $(USE_UNISWAPV3_BASE_MARKETS)
 export USE_COINGECKO_MARKETS ?= $(USE_COINGECKO_MARKETS)
+export USE_COINMARKETCAP_MARKETS ?= $(USE_COINMARKETCAP_MARKETS)
+export USE_OSMOSIS_MARKETS ?= $(USE_OSMOSIS_MARKETS)
+export USE_POLYMARKET_MARKETS ?= $(USE_POLYMARKET_MARKETS)
 export SCRIPT_DIR := $(SCRIPT_DIR)
 
 BUILD_TAGS := -X github.com/skip-mev/slinky/cmd/build.Build=$(TAG)
@@ -54,15 +60,22 @@ run-oracle-client: build
 
 start-all-dev:
 	@echo "Starting development oracle side-car, blockchain, grafana, and prometheus dashboard..."
-	@$(DOCKER_COMPOSE) -f $(DEV_COMPOSE) up -d --build
+	@$(DOCKER_COMPOSE) -f $(DEV_COMPOSE) --profile all up -d --build
 
 stop-all-dev:
 	@echo "Stopping development network..."
-	@$(DOCKER_COMPOSE) -f $(DEV_COMPOSE) down
+	@$(DOCKER_COMPOSE) -f $(DEV_COMPOSE) --profile all down
+
+start-sidecar-dev:
+	@echo "Starting development oracle side-car, grafana, and prometheus dashboard..."
+	@$(DOCKER_COMPOSE) -f $(DEV_COMPOSE) --profile sidecar up -d --build
+
+stop-sidecar-dev:
+	@echo "Stopping development oracle..."
+	@$(DOCKER_COMPOSE) -f $(DEV_COMPOSE) --profile sidecar down
 
 install: tidy
 	@go install -ldflags="$(BUILD_TAGS)" -mod=readonly ./cmd/slinky
-	@go install -mod=readonly $(BUILD_FLAGS) ./tests/simapp/slinkyd
 
 .PHONY: build install run-oracle-client start-all-dev stop-all-dev
 
@@ -297,3 +310,15 @@ deploy-dev:
 
 .PHONY: deploy-dev
 
+###############################################################################
+##                                  Docs                                     ##
+###############################################################################
+
+docs:
+	@if which mintlify > /dev/null 2>&1; then \
+		echo "Starting Mintlify dev server..."; \
+		cd docs && mintlify dev; \
+	else \
+		echo "Mintlify not found. Install at https://mintlify.com/docs/quickstart"; \
+	fi
+.PHONY: docs

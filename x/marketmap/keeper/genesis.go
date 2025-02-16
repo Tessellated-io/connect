@@ -30,8 +30,10 @@ func (k *Keeper) InitGenesis(ctx sdk.Context, gs types.GenesisState) {
 		panic(err)
 	}
 
-	if err := k.hooks.AfterMarketGenesis(ctx, gs.MarketMap.Markets); err != nil {
-		panic(err)
+	if k.hooks != nil {
+		if err := k.hooks.AfterMarketGenesis(ctx, gs.MarketMap.Markets); err != nil {
+			panic(err)
+		}
 	}
 }
 
@@ -60,3 +62,6 @@ func (k *Keeper) ExportGenesis(ctx sdk.Context) *types.GenesisState {
 		Params:      params,
 	}
 }
+
+// InitializeForGenesis is a no-op.
+func (k *Keeper) InitializeForGenesis(_ sdk.Context) {}

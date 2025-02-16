@@ -12,8 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/skip-mev/slinky/providers/static"
-
 	abcitypes "github.com/cometbft/cometbft/abci/types"
 	cmtabci "github.com/cometbft/cometbft/abci/types"
 	"github.com/cometbft/cometbft/libs/rand"
@@ -24,6 +22,7 @@ import (
 	interchaintest "github.com/strangelove-ventures/interchaintest/v8"
 	"github.com/strangelove-ventures/interchaintest/v8/chain/cosmos"
 	"github.com/strangelove-ventures/interchaintest/v8/ibc"
+	"github.com/strangelove-ventures/interchaintest/v8/testreporter"
 	"github.com/strangelove-ventures/interchaintest/v8/testutil"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zaptest"
@@ -31,19 +30,17 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/strangelove-ventures/interchaintest/v8/testreporter"
-
 	compression "github.com/skip-mev/slinky/abci/strategies/codec"
 	slinkyabci "github.com/skip-mev/slinky/abci/ve/types"
 	oracleconfig "github.com/skip-mev/slinky/oracle/config"
 	slinkytypes "github.com/skip-mev/slinky/pkg/types"
+	"github.com/skip-mev/slinky/providers/static"
 	mmtypes "github.com/skip-mev/slinky/x/marketmap/types"
 	oracletypes "github.com/skip-mev/slinky/x/oracle/types"
 )
 
 const (
 	oracleConfigPath = "oracle.json"
-	marketMapPath    = "market.json"
 	appConfigPath    = "config/app.toml"
 )
 
@@ -150,6 +147,8 @@ func SetOracleConfigsOnApp(node *cosmos.ChainNode) {
 	oracleAppConfig["client_timeout"] = "1s"
 	oracleAppConfig["metrics_enabled"] = true
 	oracleAppConfig["prometheus_server_address"] = fmt.Sprintf("localhost:%s", "8081")
+	oracleAppConfig["price_ttl"] = "5s"
+	oracleAppConfig["interval"] = "1s"
 
 	appConfig["oracle"] = oracleAppConfig
 	bz, err = toml.Marshal(appConfig)
@@ -270,7 +269,81 @@ func QueryCurrencyPairs(chain *cosmos.CosmosChain) (*oracletypes.GetAllCurrencyP
 	client := oracletypes.NewQueryClient(cc)
 
 	// query the currency pairs
-	return client.GetAllCurrencyPairs(context.Background(), &oracletypes.GetAllCurrencyPairsRequest{})
+	resp, err := client.GetAllCurrencyPairs(context.Background(), &oracletypes.GetAllCurrencyPairsRequest{})
+
+	// check that there is a correspondence between mappings and the raw response
+	mappingResp, err := QueryCurrencyPairMappings(chain)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(resp.CurrencyPairs) != len(mappingResp.CurrencyPairMapping) {
+		return nil, fmt.Errorf("list and map responses should be the same length: got %d list, %d map",
+			len(resp.CurrencyPairs),
+			len(mappingResp.CurrencyPairMapping),
+		)
+	}
+	for _, v := range mappingResp.CurrencyPairMapping {
+		found := false
+		for _, cp := range resp.CurrencyPairs {
+			if v.Equal(cp) {
+				found = true
+			}
+		}
+
+		if !found {
+			return nil, fmt.Errorf("currency pair %v was found in mapping response but not in currency pair list", v)
+		}
+	}
+
+	return resp, err
+}
+
+// QueryCurrencyPairMappings queries the chain for the given currency pair mappings
+func QueryCurrencyPairMappings(chain *cosmos.CosmosChain) (*oracletypes.GetCurrencyPairMappingResponse, error) {
+	// get grpc address
+	grpcAddr := chain.GetHostGRPCAddress()
+
+	// create the client
+	cc, err := grpc.Dial(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
+	}
+	defer cc.Close()
+
+	// create the oracle client
+	client := oracletypes.NewQueryClient(cc)
+
+	// query the currency pairs map
+	mapRes, err := client.GetCurrencyPairMapping(context.Background(), &oracletypes.GetCurrencyPairMappingRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	// query the currency pairs list
+	listRes, err := client.GetCurrencyPairMappingList(context.Background(), &oracletypes.GetCurrencyPairMappingListRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(listRes.Mappings) != len(mapRes.CurrencyPairMapping) {
+		return nil, fmt.Errorf("map and list responses should be the same length: got %d list, %d map",
+			len(listRes.Mappings),
+			len(mapRes.CurrencyPairMapping),
+		)
+	}
+	for _, m := range listRes.Mappings {
+		cp, found := mapRes.CurrencyPairMapping[m.Id]
+		if !found {
+			return nil, fmt.Errorf("mapping for %d not found", m.Id)
+		}
+
+		if !m.CurrencyPair.Equal(cp) {
+			return nil, fmt.Errorf("market %s is not equal to %s", m.CurrencyPair.String(), cp.String())
+		}
+	}
+
+	return mapRes, nil
 }
 
 // QueryCurrencyPair queries the price for the given currency-pair given a desired height to query from
@@ -306,16 +379,125 @@ func QueryCurrencyPair(chain *cosmos.CosmosChain, cp slinkytypes.CurrencyPair, h
 	return res.Price, int64(res.Nonce), nil
 }
 
+// QueryMarket queries a market from the market map.
+func QueryMarket(chain *cosmos.CosmosChain, cp slinkytypes.CurrencyPair) (mmtypes.Market, error) {
+	grpcAddr := chain.GetHostGRPCAddress()
+
+	// create the client
+	cc, err := grpc.Dial(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return mmtypes.Market{}, err
+	}
+	defer cc.Close()
+
+	// create the mm client
+	client := mmtypes.NewQueryClient(cc)
+
+	ctx := context.Background()
+
+	// query the currency pairs
+	res, err := client.Market(ctx, &mmtypes.MarketRequest{
+		CurrencyPair: cp,
+	})
+	if err != nil {
+		return mmtypes.Market{}, err
+	}
+
+	return res.Market, nil
+}
+
+// QueryMarketMap queries the market map.  This query util provides an additional query to the list endpoint
+// and ensures that the response data in both queries is equal.
+func QueryMarketMap(chain *cosmos.CosmosChain) (*mmtypes.MarketMapResponse, error) {
+	grpcAddr := chain.GetHostGRPCAddress()
+
+	// create the client
+	cc, err := grpc.Dial(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
+	}
+	defer cc.Close()
+
+	// create the mm client
+	client := mmtypes.NewQueryClient(cc)
+
+	ctx := context.Background()
+
+	// query the currency pairs
+	mapRes, err := client.MarketMap(ctx, &mmtypes.MarketMapRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	if mapRes == nil {
+		return nil, fmt.Errorf("map response is nil")
+	}
+
+	// query markets to check that there is 1-1 correspondence to the map query
+	listRes, err := QueryMarkets(chain)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(listRes.Markets) != len(mapRes.MarketMap.Markets) {
+		return nil, fmt.Errorf("map and list responses should be the same length: got %d list, %d map",
+			len(listRes.Markets),
+			len(mapRes.MarketMap.Markets),
+		)
+	}
+	for _, market := range listRes.Markets {
+		mapMarket, found := mapRes.MarketMap.Markets[market.Ticker.String()]
+		if !found {
+			return nil, fmt.Errorf("market %s not found", market.Ticker.String())
+		}
+
+		if !market.Equal(mapMarket) {
+			return nil, fmt.Errorf("market %s is not equal to %s", market.Ticker.String(), mapMarket.String())
+		}
+	}
+
+	return mapRes, nil
+}
+
+// QueryMarkets queries all markets .
+func QueryMarkets(chain *cosmos.CosmosChain) (*mmtypes.MarketsResponse, error) {
+	grpcAddr := chain.GetHostGRPCAddress()
+
+	// create the client
+	cc, err := grpc.Dial(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
+	}
+	defer cc.Close()
+
+	// create the mm client
+	client := mmtypes.NewQueryClient(cc)
+
+	ctx := context.Background()
+
+	// query the currency pairs
+	res, err := client.Markets(ctx, &mmtypes.MarketsRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	if res == nil {
+		return nil, fmt.Errorf("response is nil")
+	}
+
+	return res, nil
+}
+
 // SubmitProposal creates and submits a proposal to the chain
 func SubmitProposal(chain *cosmos.CosmosChain, deposit sdk.Coin, submitter string, msgs ...sdk.Msg) (string, error) {
 	// build the proposal
-	rand := rand.Str(10)
+	randStr := rand.Str(10)
 	protoMsgs := make([]cosmos.ProtoMessage, len(msgs))
 	for i, msg := range msgs {
 		protoMsgs[i] = msg
 	}
 
-	prop, err := chain.BuildProposal(protoMsgs, rand, rand, rand, deposit.String(), submitter, false)
+	prop, err := chain.BuildProposal(protoMsgs, randStr, randStr, randStr, deposit.String(), submitter, false)
 	if err != nil {
 		return "", err
 	}
@@ -360,30 +542,26 @@ func PassProposal(chain *cosmos.CosmosChain, propId string, timeout time.Duratio
 
 // AddCurrencyPairs creates + submits the proposal to add the given currency-pairs to state, votes for the prop w/ all nodes,
 // and waits for the proposal to pass.
-func (s *SlinkyIntegrationSuite) AddCurrencyPairs(chain *cosmos.CosmosChain, user cosmos.User, price float64, cps ...slinkytypes.CurrencyPair) error {
-	creates := make([]mmtypes.Market, len(cps))
-	for i, cp := range cps {
+func (s *SlinkyIntegrationSuite) AddCurrencyPairs(chain *cosmos.CosmosChain, user cosmos.User, price float64,
+	tickers ...mmtypes.Ticker,
+) error {
+	creates := make([]mmtypes.Market, len(tickers))
+	for i, ticker := range tickers {
 		creates[i] = mmtypes.Market{
-			Ticker: mmtypes.Ticker{
-				CurrencyPair:     cp,
-				Decimals:         8,
-				MinProviderCount: 1,
-				Metadata_JSON:    "",
-				Enabled:          true,
-			},
+			Ticker: ticker,
 			ProviderConfigs: []mmtypes.ProviderConfig{
 				{
 					Name:           static.Name,
-					OffChainTicker: cp.String(),
+					OffChainTicker: ticker.String(),
 					Metadata_JSON:  fmt.Sprintf(`{"price": %f}`, price),
 				},
 			},
 		}
 	}
 
-	msg := &mmtypes.MsgCreateMarkets{
-		Authority:     s.user.FormattedAddress(),
-		CreateMarkets: creates,
+	msg := &mmtypes.MsgUpsertMarkets{
+		Authority: s.user.FormattedAddress(),
+		Markets:   creates,
 	}
 
 	tx := CreateTx(s.T(), s.chain, user, gasPrice, msg)
@@ -391,23 +569,48 @@ func (s *SlinkyIntegrationSuite) AddCurrencyPairs(chain *cosmos.CosmosChain, use
 	// get an rpc endpoint for the chain
 	client := chain.Nodes()[0].Client
 
+	ctx := context.Background()
+
 	// broadcast the tx
-	resp, err := client.BroadcastTxCommit(context.Background(), tx)
+	txResp, err := client.BroadcastTxCommit(ctx, tx)
 	if err != nil {
 		return err
 	}
 
-	if resp.TxResult.Code != abcitypes.CodeTypeOK {
-		return fmt.Errorf(resp.TxResult.Log)
+	if txResp.TxResult.Code != abcitypes.CodeTypeOK {
+		return fmt.Errorf(txResp.TxResult.Log)
 	}
+
+	time.Sleep(2 * time.Second)
+
+	// check market map and lastUpdated
+	mmResp, err := QueryMarketMap(chain)
+	s.Require().NoError(err)
+
+	// ensure that the market exists
+	for _, create := range creates {
+		got, found := mmResp.MarketMap.Markets[create.Ticker.String()]
+		s.Require().True(found)
+		s.Require().Equal(create, got)
+	}
+
+	s.Require().Equal(uint64(txResp.Height), mmResp.LastUpdated)
 
 	return nil
 }
 
-func (s *SlinkyIntegrationSuite) UpdateCurrencyPair(chain *cosmos.CosmosChain, markets []mmtypes.Market) error {
-	msg := &mmtypes.MsgUpdateMarkets{
-		Authority:     s.user.FormattedAddress(),
-		UpdateMarkets: markets,
+func (s *SlinkyIntegrationSuite) RemoveMarket(
+	chain *cosmos.CosmosChain,
+	markets []slinkytypes.CurrencyPair,
+) error {
+	marketString := make([]string, len(markets))
+	for i, market := range markets {
+		marketString[i] = market.String()
+	}
+
+	msg := &mmtypes.MsgRemoveMarkets{
+		Authority: s.user.FormattedAddress(),
+		Markets:   marketString,
 	}
 
 	tx := CreateTx(s.T(), s.chain, s.user, gasPrice, msg)
@@ -423,6 +626,52 @@ func (s *SlinkyIntegrationSuite) UpdateCurrencyPair(chain *cosmos.CosmosChain, m
 	if resp.TxResult.Code != abcitypes.CodeTypeOK {
 		return fmt.Errorf(resp.TxResult.Log)
 	}
+
+	// check market map and lastUpdated
+	mmResp, err := QueryMarketMap(chain)
+	s.Require().NoError(err)
+
+	// ensure that the market no longer exist
+	for _, market := range markets {
+		_, found := mmResp.MarketMap.Markets[market.String()]
+		s.Require().False(found)
+	}
+
+	return nil
+}
+
+func (s *SlinkyIntegrationSuite) UpdateCurrencyPair(chain *cosmos.CosmosChain, markets []mmtypes.Market) error {
+	msg := &mmtypes.MsgUpsertMarkets{
+		Authority: s.user.FormattedAddress(),
+		Markets:   markets,
+	}
+
+	tx := CreateTx(s.T(), s.chain, s.user, gasPrice, msg)
+
+	// get an rpc endpoint for the chain
+	client := chain.Nodes()[0].Client
+	// broadcast the tx
+	txResp, err := client.BroadcastTxCommit(context.Background(), tx)
+	if err != nil {
+		return err
+	}
+
+	if txResp.TxResult.Code != abcitypes.CodeTypeOK {
+		return fmt.Errorf(txResp.TxResult.Log)
+	}
+
+	// check market map and lastUpdated
+	mmResp, err := QueryMarketMap(chain)
+	s.Require().NoError(err)
+
+	// ensure that the market exists
+	for _, create := range markets {
+		got, found := mmResp.MarketMap.Markets[create.Ticker.String()]
+		s.Require().True(found)
+		s.Require().Equal(create, got)
+	}
+
+	s.Require().Equal(uint64(txResp.Height), mmResp.LastUpdated)
 
 	return nil
 }
@@ -452,7 +701,7 @@ func QueryProposal(chain *cosmos.CosmosChain, propID string) (*govtypesv1.QueryP
 	})
 }
 
-// WaitForProposalStatus, waits for the deposit period for the proposal to end
+// WaitForProposalStatus waits for the deposit period for the proposal to end
 func WaitForProposalStatus(chain *cosmos.CosmosChain, propID string, timeout time.Duration, status govtypesv1.ProposalStatus) error {
 	return testutil.WaitForCondition(timeout, 1*time.Second, func() (bool, error) {
 		prop, err := QueryProposal(chain, propID)

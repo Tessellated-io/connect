@@ -2,27 +2,30 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+
+	//nolint: gosec
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"regexp"
+	"strings"
 	"syscall"
 
-	"github.com/skip-mev/slinky/providers/apis/marketmap"
-
-	_ "net/http/pprof" //nolint: gosec
-
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
+	"github.com/skip-mev/slinky/cmd/build"
 	cmdconfig "github.com/skip-mev/slinky/cmd/slinky/config"
 	"github.com/skip-mev/slinky/oracle"
 	"github.com/skip-mev/slinky/oracle/config"
-
-	"github.com/skip-mev/slinky/cmd/build"
 	oraclemetrics "github.com/skip-mev/slinky/oracle/metrics"
 	"github.com/skip-mev/slinky/pkg/log"
 	oraclemath "github.com/skip-mev/slinky/pkg/math/oracle"
+	"github.com/skip-mev/slinky/providers/apis/marketmap"
 	oraclefactory "github.com/skip-mev/slinky/providers/factories/oracle"
 	mmservicetypes "github.com/skip-mev/slinky/service/clients/marketmap/types"
 	oracleserver "github.com/skip-mev/slinky/service/servers/oracle"
@@ -49,23 +52,32 @@ var (
 		},
 	}
 
-	oracleCfgPath         string
-	marketCfgPath         string
-	marketMapProvider     string
-	updateMarketCfgPath   string
-	runPprof              bool
-	profilePort           string
-	logLevel              string
+	// oracle config flags.
+	flagMetricsEnabled           = "metrics-enabled"
+	flagMetricsPrometheusAddress = "metrics-prometheus-address"
+	flagHost                     = "host"
+	flagPort                     = "port"
+	flagUpdateInterval           = "update-interval"
+	flagMaxPriceAge              = "max-price-age"
+
+	// flag-bound values.
+	oracleCfgPath       string
+	marketCfgPath       string
+	marketMapProvider   string
+	updateMarketCfgPath string
+	runPprof            bool
+	profilePort         string
+	logLevel            string
 	logStdoutOutputFormat string
 	logFileOutputFormat   string
-	fileLogLevel          string
-	writeLogsTo           string
-	marketMapEndPoint     string
-	maxLogSize            int
-	maxBackups            int
-	maxAge                int
-	disableCompressLogs   bool
-	disableRotatingLogs   bool
+  fileLogLevel        string
+	writeLogsTo         string
+	marketMapEndPoint   string
+	maxLogSize          int
+	maxBackups          int
+	maxAge              int
+	disableCompressLogs bool
+	disableRotatingLogs bool
 )
 
 const (
@@ -78,7 +90,7 @@ func init() {
 		"marketmap-provider",
 		"",
 		marketmap.Name,
-		"MarketMap provider to use (marketmap_api, dydx_api).",
+		"MarketMap provider to use (marketmap_api, dydx_api, dydx_migration_api).",
 	)
 	rootCmd.Flags().StringVarP(
 		&oracleCfgPath,
@@ -192,6 +204,51 @@ func init() {
 		"",
 		"Use a custom listen-to endpoint for market-map (overwrites what is provided in oracle-config).",
 	)
+
+	// these flags are connected to the OracleConfig.
+	rootCmd.Flags().Bool(
+		flagMetricsEnabled,
+		cmdconfig.DefaultMetricsEnabled,
+		"Enables the Oracle client metrics",
+	)
+	rootCmd.Flags().String(
+		flagMetricsPrometheusAddress,
+		cmdconfig.DefaultPrometheusServerAddress,
+		"Sets the Prometheus server address for the Oracle client metrics",
+	)
+	rootCmd.Flags().String(
+		flagHost,
+		cmdconfig.DefaultHost,
+		"The address the Oracle serve from",
+	)
+	rootCmd.Flags().String(
+		flagPort,
+		cmdconfig.DefaultPort,
+		"The port the Oracle will serve from",
+	)
+	rootCmd.Flags().Int(
+		flagUpdateInterval,
+		cmdconfig.DefaultUpdateInterval,
+		"The interval at which the oracle will fetch prices from providers",
+	)
+	rootCmd.Flags().Duration(
+		flagMaxPriceAge,
+		cmdconfig.DefaultMaxPriceAge,
+		"Maximum age of a price that the oracle will consider valid",
+	)
+	// bind them to viper.
+	err := errors.Join(
+		viper.BindPFlag("host", rootCmd.Flags().Lookup(flagHost)),
+		viper.BindPFlag("port", rootCmd.Flags().Lookup(flagPort)),
+		viper.BindPFlag("metrics.enabled", rootCmd.Flags().Lookup(flagMetricsEnabled)),
+		viper.BindPFlag("metrics.prometheusServerAddress", rootCmd.Flags().Lookup(flagMetricsPrometheusAddress)),
+		viper.BindPFlag("maxPriceAge", rootCmd.Flags().Lookup(flagMaxPriceAge)),
+		viper.BindPFlag("updateInterval", rootCmd.Flags().Lookup(flagUpdateInterval)),
+	)
+	if err != nil {
+		panic(fmt.Sprintf("failed to bind flags: %v", err))
+	}
+
 	rootCmd.MarkFlagsMutuallyExclusive("update-market-config-path", "market-config-path")
 	rootCmd.MarkFlagsMutuallyExclusive("market-map-endpoint", "market-config-path")
 
@@ -244,6 +301,14 @@ func runOracle() error {
 		cfg, err = overwriteMarketMapEndpoint(cfg, marketMapEndPoint)
 		if err != nil {
 			return fmt.Errorf("failed to overwrite market endpoint %s: %w", marketMapEndPoint, err)
+		}
+	}
+
+	// check that the marketmap endpoint they provided is correct.
+	if marketMapProvider == marketmap.Name {
+		mmEndpoint := cfg.Providers[marketMapProvider].API.Endpoints[0].URL
+		if err := isValidGRPCEndpoint(mmEndpoint); err != nil {
+			return err
 		}
 	}
 
@@ -360,4 +425,28 @@ func overwriteMarketMapEndpoint(cfg config.OracleConfig, overwrite string) (conf
 	}
 
 	return cfg, fmt.Errorf("no market-map provider found in config")
+}
+
+// isValidGRPCEndpoint checks that the string s is a valid gRPC endpoint. (doesn't start with http, ends with a port).
+func isValidGRPCEndpoint(s string) error {
+	if strings.HasPrefix(s, "http") {
+		return fmt.Errorf("expected gRPC endpoint but got HTTP endpoint %q. Please provide a gRPC endpoint (e.g. some.host:9090)", s)
+	}
+	if !hasPort(s) {
+		// they might do something like foo.bar:hello
+		// so lets just take the bit before foo.bar for the example in the error.
+		example := strings.Split(s, ":")[0]
+		return fmt.Errorf("invalid gRPC endpoint %q. Must specify port (e.g. %s:9090)", s, example)
+	}
+	return nil
+}
+
+// hasPort reports whether s contains `:` followed by numbers.
+func hasPort(s string) bool {
+	// matches anything that has `:` and some numbers after.
+	pattern := `:[0-9]+$`
+
+	regex := regexp.MustCompile(pattern)
+
+	return regex.MatchString(s)
 }

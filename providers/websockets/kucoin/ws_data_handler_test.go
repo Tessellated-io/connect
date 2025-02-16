@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/skip-mev/slinky/oracle/config"
 	"github.com/skip-mev/slinky/oracle/types"
 	"github.com/skip-mev/slinky/providers/base/websocket/handlers"
 	"github.com/skip-mev/slinky/providers/websockets/kucoin"
@@ -23,6 +24,9 @@ var (
 	}
 	ethusdt = types.DefaultProviderTicker{
 		OffChainTicker: "ETH-USDT",
+	}
+	mogusdt = types.DefaultProviderTicker{
+		OffChainTicker: "MOG-USDT",
 	}
 	logger = zap.NewExample()
 )
@@ -64,7 +68,18 @@ func TestHandleMessage(t *testing.T) {
 					"type": "pong"
 				}`)
 			},
-			resp:        types.PriceResponse{},
+			resp: types.PriceResponse{
+				Resolved: types.ResolvedPrices{
+					btcusdt: {
+						Value:        big.NewFloat(0),
+						ResponseCode: providertypes.ResponseCodeUnchanged,
+					},
+					ethusdt: {
+						Value:        big.NewFloat(0),
+						ResponseCode: providertypes.ResponseCodeUnchanged,
+					},
+				},
+			},
 			updateMsg:   func() []handlers.WebsocketEncodedMessage { return nil },
 			expectedErr: false,
 		},
@@ -288,14 +303,15 @@ func TestHandleMessage(t *testing.T) {
 			require.NoError(t, err)
 
 			// The response should contain a single resolved price update.
-			require.LessOrEqual(t, len(resp.Resolved), 1)
-			require.LessOrEqual(t, len(resp.UnResolved), 1)
+			require.LessOrEqual(t, len(resp.Resolved), 2)
+			require.LessOrEqual(t, len(resp.UnResolved), 2)
 
 			require.Equal(t, tc.updateMsg(), updateMsg)
 
 			for cp, result := range tc.resp.Resolved {
 				require.Contains(t, resp.Resolved, cp)
 				require.Equal(t, result.Value.SetPrec(18), resp.Resolved[cp].Value.SetPrec(18))
+				require.Equal(t, result.ResponseCode, resp.Resolved[cp].ResponseCode)
 			}
 
 			for cp := range tc.resp.UnResolved {
@@ -307,15 +323,20 @@ func TestHandleMessage(t *testing.T) {
 }
 
 func TestCreateMessages(t *testing.T) {
+	batchCfg := kucoin.DefaultWebSocketConfig
+	batchCfg.MaxSubscriptionsPerBatch = 2
+
 	testCases := []struct {
 		name        string
 		cps         []types.ProviderTicker
+		cfg         config.WebSocketConfig
 		expected    func() []handlers.WebsocketEncodedMessage
 		expectedErr bool
 	}{
 		{
 			name: "no currency pairs",
 			cps:  []types.ProviderTicker{},
+			cfg:  kucoin.DefaultWebSocketConfig,
 			expected: func() []handlers.WebsocketEncodedMessage {
 				return nil
 			},
@@ -326,6 +347,7 @@ func TestCreateMessages(t *testing.T) {
 			cps: []types.ProviderTicker{
 				btcusdt,
 			},
+			cfg: kucoin.DefaultWebSocketConfig,
 			expected: func() []handlers.WebsocketEncodedMessage {
 				msg := kucoin.SubscribeRequestMessage{
 					Type: string(kucoin.SubscribeMessage),
@@ -351,6 +373,7 @@ func TestCreateMessages(t *testing.T) {
 				btcusdt,
 				ethusdt,
 			},
+			cfg: kucoin.DefaultWebSocketConfig,
 			expected: func() []handlers.WebsocketEncodedMessage {
 				msgs := make([]handlers.WebsocketEncodedMessage, 2)
 				for i, ticker := range []string{"BTC-USDT", "ETH-USDT"} {
@@ -374,11 +397,85 @@ func TestCreateMessages(t *testing.T) {
 			},
 			expectedErr: false,
 		},
+		{
+			name: "multiple currency pairs with batch config",
+			cps: []types.ProviderTicker{
+				btcusdt,
+				ethusdt,
+			},
+			cfg: batchCfg,
+			expected: func() []handlers.WebsocketEncodedMessage {
+				msgs := make([]handlers.WebsocketEncodedMessage, 1)
+				msg := kucoin.SubscribeRequestMessage{
+					Type: string(kucoin.SubscribeMessage),
+					Topic: fmt.Sprintf(
+						"%s%s,%s",
+						kucoin.TickerTopic,
+						"BTC-USDT",
+						"ETH-USDT",
+					),
+					PrivateChannel: false,
+					Response:       false,
+				}
+
+				bz, err := json.Marshal(msg)
+				require.NoError(t, err)
+				msgs[0] = bz
+
+				return msgs
+			},
+			expectedErr: false,
+		},
+		{
+			name: "multiple currency pairs with batch config and remainder",
+			cps: []types.ProviderTicker{
+				btcusdt,
+				ethusdt,
+				mogusdt,
+			},
+			cfg: batchCfg,
+			expected: func() []handlers.WebsocketEncodedMessage {
+				msgs := make([]handlers.WebsocketEncodedMessage, 2)
+				msg := kucoin.SubscribeRequestMessage{
+					Type: string(kucoin.SubscribeMessage),
+					Topic: fmt.Sprintf(
+						"%s%s,%s",
+						kucoin.TickerTopic,
+						"BTC-USDT",
+						"ETH-USDT",
+					),
+					PrivateChannel: false,
+					Response:       false,
+				}
+
+				bz, err := json.Marshal(msg)
+				require.NoError(t, err)
+				msgs[0] = bz
+
+				msg = kucoin.SubscribeRequestMessage{
+					Type: string(kucoin.SubscribeMessage),
+					Topic: fmt.Sprintf(
+						"%s%s",
+						kucoin.TickerTopic,
+						"MOG-USDT",
+					),
+					PrivateChannel: false,
+					Response:       false,
+				}
+
+				bz, err = json.Marshal(msg)
+				require.NoError(t, err)
+				msgs[1] = bz
+
+				return msgs
+			},
+			expectedErr: false,
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			handler, err := kucoin.NewWebSocketDataHandler(logger, kucoin.DefaultWebSocketConfig)
+			handler, err := kucoin.NewWebSocketDataHandler(logger, tc.cfg)
 			require.NoError(t, err)
 
 			actual, err := handler.CreateMessages(tc.cps)

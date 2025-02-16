@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -90,7 +91,9 @@ type Config struct {
 	MaxAge int
 	// Compress determines if the rotated log files should be compressed.
 	Compress bool
-	// StdOutOutputFormat is the output format for a the file logger
+	// LogSamplePeriod is the duration in which we de-dupe identical log messages.
+	LogSamplePeriod time.Duration
+  // StdOutOutputFormat is the output format for a the file logger
 	StdOutOutputFormat LogOutputFormat
 	// FileOutputFormat is the output format for a the file logger
 	FileOutputFormat LogOutputFormat
@@ -99,16 +102,17 @@ type Config struct {
 // NewDefaultConfig creates a default configuration for the logger.
 func NewDefaultConfig() Config {
 	return Config{
-		StdOutLogLevel:     "info",
-		FileOutLogLevel:    "info",
-		DisableRotating:    false,
-		WriteTo:            "sidecar.log",
-		MaxSize:            1, // 100MB
-		MaxBackups:         1,
-		MaxAge:             3, // 3 days
-		Compress:           false,
+		StdOutLogLevel:  "info",
+		FileOutLogLevel: "info",
+		DisableRotating: false,
+		WriteTo:         "sidecar.log",
+		MaxSize:         1, // 100MB
+		MaxBackups:      1,
+		MaxAge:          3, // 3 days
+		Compress:        false,
 		StdOutOutputFormat: DefaultOutputFormat,
 		FileOutputFormat:   DefaultOutputFormat,
+    LogSamplePeriod: 10 * time.Second,
 	}
 }
 
@@ -161,6 +165,10 @@ func NewLogger(config Config) *zap.Logger {
 		core = zapcore.NewTee(stdCore, fileCore)
 	} else {
 		core = stdCore
+	}
+	if strings.ToUpper(config.StdOutLogLevel) != zap.DebugLevel.CapitalString() && strings.ToUpper(config.FileOutLogLevel) != zap.DebugLevel.CapitalString() {
+		// If we're not in debug log level anywhere, filter any logs which have non-unique messages within a 10-second period
+		core = zapcore.NewSamplerWithOptions(core, config.LogSamplePeriod, 1, 0)
 	}
 
 	return zap.New(

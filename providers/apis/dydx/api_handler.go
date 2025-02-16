@@ -31,8 +31,13 @@ func NewAPIHandler(
 	logger *zap.Logger,
 	api config.APIConfig,
 ) (*APIHandler, error) {
-	if api.Name != Name {
-		return nil, fmt.Errorf("expected api config name %s, got %s", Name, api.Name)
+	if api.Name != Name && api.Name != SwitchOverAPIHandlerName {
+		return nil, fmt.Errorf(
+			"expected api config name %s or %s, got %s",
+			SwitchOverAPIHandlerName,
+			Name,
+			api.Name,
+		)
 	}
 
 	if !api.Enabled {
@@ -102,7 +107,7 @@ func (h *APIHandler) ParseResponse(
 	}
 
 	// Convert the dydx market params to a market map.
-	marketResp, err := h.ConvertMarketParamsToMarketMap(params)
+	marketResp, err := ConvertMarketParamsToMarketMap(params)
 	if err != nil {
 		h.logger.Debug(
 			"failed to convert dydx market params to market map",

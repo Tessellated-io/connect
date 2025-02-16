@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/viper"
 
 	"github.com/skip-mev/slinky/cmd/constants"
@@ -94,7 +95,7 @@ func setViperDefaultsForDataStructure(keyPrefix string, config interface{}) {
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 }
 
-// ReadOracleConfigFromFile reads a config from a file and returns the config.
+// ReadOracleConfigWithOverrides reads a config from a file and returns the config.
 func ReadOracleConfigWithOverrides(path string, marketMapProvider string) (config.OracleConfig, error) {
 	// if the path is non-nil read data from a file\
 	SetDefaults()
@@ -132,12 +133,23 @@ func ReadOracleConfigWithOverrides(path string, marketMapProvider string) (confi
 // oracleConfigFromViper unmarshals an oracle config from viper, validates it, and returns it.
 func oracleConfigFromViper() (config.OracleConfig, error) {
 	var cfg config.OracleConfig
-	if err := viper.Unmarshal(&cfg); err != nil {
+	unmarshalMetadata := mapstructure.Metadata{}
+	if err := viper.Unmarshal(&cfg, func(c *mapstructure.DecoderConfig) {
+		c.ErrorUnused = true
+		c.Metadata = &unmarshalMetadata
+	}); err != nil {
 		return config.OracleConfig{}, err
 	}
 
 	// for each api-provider, we'll have to manually fill the endpoints
 	for _, provider := range cfg.Providers {
+		// if a provider was not unmarshaled correctly, surface that error
+		if provider.Name == "" {
+			if len(unmarshalMetadata.Unset) > 0 {
+				return config.OracleConfig{}, fmt.Errorf("overridden key %s does not correspond to a known provider", unmarshalMetadata.Unset[0])
+			}
+		}
+
 		// Update API endpoints
 		for i, endpoint := range provider.API.Endpoints {
 			provider.API.Endpoints[i], _ = updateEndpointFromEnvironment(endpoint, provider.Name, i, "api")

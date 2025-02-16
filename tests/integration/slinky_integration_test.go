@@ -14,18 +14,15 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/skip-mev/slinky/tests/integration"
-	"github.com/skip-mev/slinky/x/alerts"
-	"github.com/skip-mev/slinky/x/incentives"
 	marketmapmodule "github.com/skip-mev/slinky/x/marketmap"
 	"github.com/skip-mev/slinky/x/oracle"
-	"github.com/skip-mev/slinky/x/sla"
 )
 
 var (
 	image = ibc.DockerImage{
 		Repository: "skip-mev/slinky-e2e",
 		Version:    "latest",
-		UidGid:     "1000:1000",
+		UIDGID:     "1000:1000",
 	}
 
 	numValidators = 4
@@ -36,17 +33,14 @@ var (
 	oracleImage = ibc.DockerImage{
 		Repository: "skip-mev/slinky-e2e-oracle",
 		Version:    "latest",
-		UidGid:     "1000:1000",
+		UIDGID:     "1000:1000",
 	}
 	encodingConfig = testutil.MakeTestEncodingConfig(
 		bank.AppModuleBasic{},
 		oracle.AppModuleBasic{},
 		gov.AppModuleBasic{},
-		alerts.AppModuleBasic{},
 		auth.AppModuleBasic{},
 		marketmapmodule.AppModuleBasic{},
-		incentives.AppModuleBasic{},
-		sla.AppModuleBasic{},
 	)
 
 	VotingPeriod     = "10s"
@@ -124,15 +118,6 @@ func TestSlinkyOracleIntegration(t *testing.T) {
 	)
 
 	suite.Run(t, integration.NewSlinkyOracleIntegrationSuite(baseSuite))
-}
-
-func TestSlinkySlashingIntegration(t *testing.T) {
-	baseSuite := integration.NewSlinkyIntegrationSuite(
-		spec,
-		oracleImage,
-	)
-
-	suite.Run(t, integration.NewSlinkySlashingIntegrationSuite(baseSuite))
 }
 
 func TestSlinkyOracleValidatorIntegration(t *testing.T) {

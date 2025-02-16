@@ -7,14 +7,16 @@
 [![GoDoc](https://img.shields.io/badge/godoc-reference-blue?style=flat-square&logo=go)](https://godoc.org/github.com/skip-mev/slinky)
 [![Go Report Card](https://goreportcard.com/badge/github.com/skip-mev/slinky?style=flat-square)](https://goreportcard.com/report/github.com/skip-mev/slinky)
 [![Version](https://img.shields.io/github/tag/skip-mev/slinky.svg?style=flat-square)](https://github.com/skip-mev/slinky/releases/latest)
-[![License: Apache-2.0](https://img.shields.io/github/license/skip-mev/slinky.svg?style=flat-square)](https://github.com/skip-mev/slinky/blob/main/LICENSE)
 [![Lines Of Code](https://img.shields.io/tokei/lines/github/skip-mev/slinky?style=flat-square)](https://github.com/skip-mev/slinky)
 
-A general purpose price oracle leveraging ABCI++. Please visit our [docs](https://docs.skip.money/slinky/overview) page for more information!
+A general purpose price oracle leveraging ABCI++. Please visit our [docs](https://docs.skip.build/connect/introduction) page for more information!
 
 Slinky uses Vote Extensions to create an hyperperformant, extremely secure mechanism for aggregating off-chain data onto a blockchain. It is used by
 many of the highest-performance decentralized applications today. If you would like to integrate Slinky to power your use case, please contact us on our
-[discord](https://discord.gg/PeBGE9jrbu).
+[Discord](https://discord.gg/PeBGE9jrbu).
+
+> [!NOTE]
+> Slinky is **business-licensed software** under BSL, meaning it requires a license to use or reference. It is source viewable, but [**reach out to us on Discord**](https://skip.build/discord) if you are interested in integrating! We are limiting the number of chains we work with to seven in 2024. We apologize if we run out of capacity.
 
 ## Install
 
@@ -30,13 +32,11 @@ The slinky repository is composed of the following core packages:
 * **oracle** - This [package](./oracle/) contains the main oracle that aggregates external data sources before broadcasting it to the network. You can reference the provider documentation [here](./providers/base/README.md) to get a high level overview of how the oracle works.
 * **providers** - This package contains a collection of [websocket](./providers/websockets/README.md) and [API](./providers/apis/README.md) based data providers that are used by the oracle to collect external data.
 * **x/oracle** - This package contains a Cosmos SDK module that allows you to store oracle data on a blockchain.
-* **x/alerts** - <UNDER DEVELOPMENT> This package contains a Cosmos SDK module that allows network participants to create alerts when oracle data that is in violation of some condition is broadcast to the network and stored on the blockchain.
-* **x/sla** - <UNDER DEVELOPMENT> This package contains a Cosmos SDK module that allows you to create service level agreements (SLAs) that can be used to incentivize network participants to consistently, reliably provide data with high uptime.
 * **x/marketmap** - This [package](./x/marketmap/README.md) contains  a Cosmos SDK module that allows for market configuration to be stored and updated on a blockchain.
 
 ## Validator Usage
 
-To read how to run the oracle as a validator based on the chain, please reference the [validator documentation](https://docs.skip.money/slinky/integrations).
+To read how to run the oracle as a validator based on the chain, please reference the [validator documentation](https://docs.skip.build/connect/validators/quickstart).
 
 ## Developer Usage
 
@@ -58,10 +58,10 @@ After a few minutes, run the following commands to see the prices written to the
 
 ```bash
 # access the blockchain container
-$ docker exec -it slinky-blockchain-1 bash
+$ docker exec -it compose-blockchain-1 bash
 
 # query the price of bitcoin in USD on the node
-$ (slinky-blockchain-1) ./build/slinkyd q oracle price BTC USD
+$ (compose-blockchain-1) ./build/slinkyd q oracle price BTC USD
 ```
 
 Result:

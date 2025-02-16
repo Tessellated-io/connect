@@ -6,18 +6,21 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/skip-mev/slinky/providers/apis/defi/raydium"
-
 	"go.uber.org/zap"
 
 	"github.com/skip-mev/slinky/oracle/config"
 	"github.com/skip-mev/slinky/oracle/types"
 	"github.com/skip-mev/slinky/providers/apis/binance"
+	"github.com/skip-mev/slinky/providers/apis/bitstamp"
 	coinbaseapi "github.com/skip-mev/slinky/providers/apis/coinbase"
 	"github.com/skip-mev/slinky/providers/apis/coingecko"
+	"github.com/skip-mev/slinky/providers/apis/coinmarketcap"
+	"github.com/skip-mev/slinky/providers/apis/defi/osmosis"
+	"github.com/skip-mev/slinky/providers/apis/defi/raydium"
 	"github.com/skip-mev/slinky/providers/apis/defi/uniswapv3"
 	"github.com/skip-mev/slinky/providers/apis/geckoterminal"
 	"github.com/skip-mev/slinky/providers/apis/kraken"
+	"github.com/skip-mev/slinky/providers/apis/polymarket"
 	apihandlers "github.com/skip-mev/slinky/providers/base/api/handlers"
 	"github.com/skip-mev/slinky/providers/base/api/metrics"
 	"github.com/skip-mev/slinky/providers/static"
@@ -69,10 +72,14 @@ func APIQueryHandlerFactory(
 	switch providerName := cfg.Name; {
 	case providerName == binance.Name:
 		apiDataHandler, err = binance.NewAPIHandler(cfg.API)
+	case providerName == bitstamp.Name:
+		apiDataHandler, err = bitstamp.NewAPIHandler(cfg.API)
 	case providerName == coinbaseapi.Name:
 		apiDataHandler, err = coinbaseapi.NewAPIHandler(cfg.API)
 	case providerName == coingecko.Name:
 		apiDataHandler, err = coingecko.NewAPIHandler(cfg.API)
+	case providerName == coinmarketcap.Name:
+		apiDataHandler, err = coinmarketcap.NewAPIHandler(cfg.API)
 	case providerName == geckoterminal.Name:
 		apiDataHandler, err = geckoterminal.NewAPIHandler(cfg.API)
 	case providerName == kraken.Name:
@@ -87,6 +94,10 @@ func APIQueryHandlerFactory(
 		requestHandler = static.NewStaticMockClient()
 	case providerName == raydium.Name:
 		apiPriceFetcher, err = raydium.NewAPIPriceFetcher(logger, cfg.API, metrics)
+	case providerName == osmosis.Name:
+		apiPriceFetcher, err = osmosis.NewAPIPriceFetcher(logger, cfg.API, metrics)
+	case providerName == polymarket.Name:
+		apiDataHandler, err = polymarket.NewAPIHandler(cfg.API)
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", cfg.Name)
 	}

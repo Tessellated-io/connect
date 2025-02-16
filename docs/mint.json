@@ -2,34 +2,37 @@
   "$schema": "https://mintlify.com/schema.json",
   "name": "Skip",
   "logo": {
-    "light": "/logo/light.png",
-    "dark": "/logo/dark.png"
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
   },
   "favicon": "/favicon.png",
   "colors": {
-    "primary": "#0E0E0E",
-    "light": "#FAFAFA",
-    "dark": "#0E0E0E",
+    "primary": "#0061ff",
+    "light": "#0061ff",
+    "dark": "#66A0FF",
     "background": {
       "dark": "#151617"
     }
   },
+  "metadata": {
+    "og:image": "https://github.com/skip-mev/slinky/blob/main/docs/img/connect-banner.png?raw=True",
+    "og:description": "Connect is an enshrined, in-protocol oracle built for high performance applications.",
+    "og:site_name": "Connect Docs",
+    "twitter:site": "@skipprotocol"
+  },
+  "isWhiteLabeled": true,
   "topbarLinks": [
     {
-      "name": "Products",
-      "url": "https://skip.money/products"
-    },
-    {
-      "name": "Contact",
-      "url": "https://skip.money/contact"
+      "name": "Skip:Go",
+      "url": "https://docs.skip.build/go"
     },
     {
       "name": "Research",
-      "url": "https://ideas.skip.money"
+      "url": "https://ideas.skip.build"
     },
     {
       "name": "Jobs",
-      "url": "https://jobs.skip.money"
+      "url": "https://jobs.skip.build"
     }
   ],
   "modeToggle": {
@@ -37,43 +40,56 @@
   },
   "navigation": [ 
     {
-      "group": "🔮 General",
+      "group": "General",
       "pages": [
-        "general/overview",
-        "general/security-properties",
-        "general/slashing",
-        "general/upcoming-work"
+        "introduction"
       ]
     },
     {
-      "group": "👾 Validators",
+      "group": "Validators",
       "pages": [
-        "validator/quickstart",
-        "validator/validator-app-config",
-        "validator/validator-slinky-config",
-        "validator/troubleshooting",
-        "validator/rpc-providers",
-        "validator/flags-guide",
-        "validator/migration-guide"
+        "validators/quickstart",
+        "validators/advanced-setups",
+        "validators/configuration",
+        "validators/faq"
       ]
     },
     {
-      "group": "⛓ Chain Integrations",
+      "group": "Metrics",
       "pages": [
-        "integrations/dydx",
-        "integrations/neutron"
+        "metrics/overview",
+        "metrics/setup",
+        "metrics/oracle-reference",
+        "metrics/application-reference"
       ]
     },
-      {
-        "group": "🛠️ Integrators",
-        "pages": [
-          "using-slinky/high-level",
-          "using-slinky/neutron-sdk"
-        ]
-      }
+    {
+      "group": "Developers",
+      "pages": [
+        "developers/integration",
+        "developers/high-level",
+        "developers/neutron-sdk",
+        "developers/providers",
+        {
+          "group": "Modules",
+          "icon": "layer-group",
+          "pages": [
+            "developers/modules/marketmap"
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Learn",
+      "pages": [
+        "learn/architecture",
+        "learn/security"
+      ]
+    }
   ],
   "footerSocials": {
     "twitter": "https://twitter.com/skipprotocol",
-    "discord": "https://discord.com/invite/hFeHVAE26P"
+    "discord": "https://discord.com/invite/hFeHVAE26P",
+    "github": "https://github.com/skip-mev/slinky"
   }
 }

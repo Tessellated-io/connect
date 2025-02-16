@@ -29,14 +29,20 @@ const (
 	// messages every hour.
 	//
 	// ref: https://www.okx.com/docs-v5/en/#overview-websocket-overview
-	WriteInterval = 400 * time.Millisecond
+	WriteInterval = 3000 * time.Millisecond
 
 	// MaxSubscriptionsPerConnection is the maximum number of subscriptions that can be
-	// assigned to a single connection for the OKX provider. By default the limit is
-	// 20 subscriptions per connection. We set the limit to 15 to be safe.
+	// assigned to a single connection for the OKX provider.
 	//
 	// ref: https://www.okx.com/docs-v5/en/#overview-websocket-overview
-	MaxSubscriptionsPerConnection = 15
+	MaxSubscriptionsPerConnection = 50
+
+	// MaxSubscriptionsPerBatch is the maximum number of subscriptions that can be
+	// assigned to a single batch for the OKX provider. We set the limit to 5 to be safe.
+	MaxSubscriptionsPerBatch = 25
+
+	// ReadTimeout is the timeout for reading from the OKX Websocket connection.
+	ReadTimeout = 15 * time.Second
 )
 
 // DefaultWebSocketConfig is the default configuration for the OKX Websocket.
@@ -46,15 +52,16 @@ var DefaultWebSocketConfig = config.WebSocketConfig{
 	MaxBufferSize:                 config.DefaultMaxBufferSize,
 	ReconnectionTimeout:           config.DefaultReconnectionTimeout,
 	PostConnectionTimeout:         config.DefaultPostConnectionTimeout,
-	Endpoints:                     []config.Endpoint{{URL: URL_PROD}},
+	Endpoints:                     []config.Endpoint{{URL: URL_PROD_AWS}},
 	ReadBufferSize:                config.DefaultReadBufferSize,
 	WriteBufferSize:               config.DefaultWriteBufferSize,
 	HandshakeTimeout:              config.DefaultHandshakeTimeout,
 	EnableCompression:             config.DefaultEnableCompression,
-	ReadTimeout:                   config.DefaultReadTimeout,
+	ReadTimeout:                   ReadTimeout,
 	WriteTimeout:                  config.DefaultWriteTimeout,
 	PingInterval:                  config.DefaultPingInterval,
 	WriteInterval:                 WriteInterval,
 	MaxReadErrorCount:             config.DefaultMaxReadErrorCount,
 	MaxSubscriptionsPerConnection: MaxSubscriptionsPerConnection,
+	MaxSubscriptionsPerBatch:      MaxSubscriptionsPerBatch,
 }

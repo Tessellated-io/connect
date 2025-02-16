@@ -22,7 +22,7 @@ import (
 	providertypes "github.com/skip-mev/slinky/providers/types"
 )
 
-var _ oracletypes.PriceAPIFetcher = (*APIPriceFetcher)(nil)
+var _ oracletypes.PriceAPIFetcher = &APIPriceFetcher{}
 
 // SolanaJSONRPCClient is the expected interface for a solana JSON-RPC client according
 // to the APIPriceFetcher.
@@ -149,7 +149,7 @@ func NewAPIPriceFetcherWithClient(
 	return pf, nil
 }
 
-// FetchPrices fetches prices from the solana JSON-RPC API for the given currency-pairs. Specifically
+// Fetch fetches prices from the solana JSON-RPC API for the given currency-pairs. Specifically
 // for each currency-pair,
 //   - Query the raydium API base (coin) / quote (pc) token vault addresses
 //   - Normalize the token balances by 1e18
@@ -159,7 +159,11 @@ func (pf *APIPriceFetcher) Fetch(
 	tickers []oracletypes.ProviderTicker,
 ) oracletypes.PriceResponse {
 	// get the accounts to query in order of the tickers given
-	expectedNumAccounts := len(tickers) * 4
+	expectedNumAccounts := len(tickers) * 4 // for each ticker, we query 4 accounts (base, quote, amm, open orders)
+
+	// accounts is a contiguous slice of solana.PublicKey.
+	// each ticker takes up 4 slots. this is functionally equivalent to [][]solana.PubKey,
+	// however, storing in one slice allows us query without rearranging the request data (i.e. converting [][] to []).
 	accounts := make([]solana.PublicKey, expectedNumAccounts)
 
 	for i, ticker := range tickers {
@@ -188,7 +192,7 @@ func (pf *APIPriceFetcher) Fetch(
 	defer cancel()
 
 	accountsResp, err := pf.client.GetMultipleAccountsWithOpts(ctx, accounts, &rpc.GetMultipleAccountsOpts{
-		Commitment: rpc.CommitmentFinalized,
+		Commitment: rpc.CommitmentConfirmed,
 		// TODO(nikhil): Keep track of latest height queried as well?
 	})
 	if err != nil {
@@ -395,7 +399,7 @@ func calculatePrice(
 	baseTokenBalance, quoteTokenBalance *big.Int,
 	baseTokenDecimals, quoteTokenDecimals uint64,
 ) *big.Float {
-	scalingFactor := math.GetScalingFactor(int64(baseTokenDecimals), int64(quoteTokenDecimals))
+	scalingFactor := math.GetScalingFactor(int64(baseTokenDecimals), int64(quoteTokenDecimals)) //nolint:gosec
 
 	// calculate the price as quote / base
 	quo := new(big.Float).Quo(

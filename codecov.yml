@@ -1,2 +1,7 @@
 ignore:
   - ".github/**/*"
+  - "**/*.sh"
+  - "**/*.mdx"
+  - "**/*.pulsar.go"
+  - "**/*.pb.go"
+  - "**/*.json"

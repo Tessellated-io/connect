@@ -37,6 +37,12 @@ type KeeperTestSuite struct {
 }
 
 func (s *KeeperTestSuite) initKeeper() *keeper.Keeper {
+	return s.initKeeperWithHooks(types.MultiMarketMapHooks{
+		s.oracleKeeper.Hooks(),
+	})
+}
+
+func (s *KeeperTestSuite) initKeeperWithHooks(hooks types.MarketMapHooks) *keeper.Keeper {
 	mmKey := storetypes.NewKVStoreKey(types.StoreKey)
 	oracleKey := storetypes.NewKVStoreKey(oracletypes.StoreKey)
 	mmSS := runtime.NewKVStoreService(mmKey)
@@ -57,7 +63,7 @@ func (s *KeeperTestSuite) initKeeper() *keeper.Keeper {
 	s.ctx = testutil.DefaultContextWithKeys(keys, transientKeys, nil).WithBlockHeight(10)
 
 	k := keeper.NewKeeper(mmSS, encCfg.Codec, s.authority)
-	s.Require().NoError(k.SetLastUpdated(s.ctx, uint64(s.ctx.BlockHeight())))
+	s.Require().NoError(k.SetLastUpdated(s.ctx, uint64(s.ctx.BlockHeight()))) //nolint:gosec
 
 	s.admin = sample.Address(r)
 	s.marketAuthorities = []string{sample.Address(r), sample.Address(r), sample.Address(r)}
@@ -69,9 +75,6 @@ func (s *KeeperTestSuite) initKeeper() *keeper.Keeper {
 	s.Require().NoError(k.SetParams(s.ctx, params))
 
 	s.oracleKeeper = oraclekeeper.NewKeeper(oracleSS, encCfg.Codec, k, s.authority)
-	hooks := types.MultiMarketMapHooks{
-		s.oracleKeeper.Hooks(),
-	}
 	k.SetHooks(hooks)
 
 	s.Require().NotPanics(func() {
@@ -165,6 +168,13 @@ var (
 		ethusdt,
 	}
 
+	marketsKeySorted = []types.Market{
+		btcusdt,
+		ethusdt,
+		usdcusd,
+		usdtusd,
+	}
+
 	marketsMap = map[string]types.Market{
 		btcusdt.Ticker.String(): btcusdt,
 		usdcusd.Ticker.String(): usdcusd,
@@ -194,12 +204,30 @@ func (s *KeeperTestSuite) TestGets() {
 		s.Require().NoError(s.keeper.ValidateState(s.ctx, markets))
 	})
 
-	s.Run("get all tickers", func() {
+	s.Run("get all tickers map", func() {
 		got, err := s.keeper.GetAllMarkets(s.ctx)
 		s.Require().NoError(err)
 
 		s.Require().Equal(len(markets), len(got))
 		s.Require().Equal(marketsMap, got)
+	})
+
+	s.Run("get all tickers list", func() {
+		got, err := s.keeper.GetAllMarketsList(s.ctx)
+		s.Require().NoError(err)
+
+		s.Require().Equal(len(marketsKeySorted), len(got))
+		s.Require().Equal(marketsKeySorted, got)
+	})
+
+	s.Run("get all tickers list - deterministic", func() {
+		for range 100 {
+			got, err := s.keeper.GetAllMarketsList(s.ctx)
+			s.Require().NoError(err)
+
+			s.Require().Equal(len(marketsKeySorted), len(got))
+			s.Require().Equal(marketsKeySorted, got)
+		}
 	})
 }
 
@@ -271,4 +299,99 @@ func (s *KeeperTestSuite) TestValidUpdate() {
 
 	s.Require().NoError(s.keeper.UpdateMarket(s.ctx, validMarket))
 	s.Require().NoError(s.keeper.ValidateState(s.ctx, []types.Market{validMarket}))
+}
+
+func (s *KeeperTestSuite) TestInvalidUpdateDisabledNormalizeBy() {
+	marketBTCUSDT := btcusdt
+	marketETHUSDT := ethusdt
+
+	// create a valid markets
+	marketBTCUSDT.Ticker.Enabled = true
+	marketETHUSDT.Ticker.Enabled = false
+
+	s.Require().NoError(s.keeper.CreateMarket(s.ctx, marketBTCUSDT))
+	s.Require().NoError(s.keeper.CreateMarket(s.ctx, marketETHUSDT))
+
+	// invalid market with a normalize pair that is in state but disabled
+	invalidMarket := marketBTCUSDT
+	invalidMarket.ProviderConfigs = append(invalidMarket.ProviderConfigs, types.ProviderConfig{
+		Name:            "huobi",
+		OffChainTicker:  "btc-usdt",
+		NormalizeByPair: &marketETHUSDT.Ticker.CurrencyPair,
+	})
+
+	s.Require().NoError(s.keeper.UpdateMarket(s.ctx, invalidMarket))
+	s.Require().Error(s.keeper.ValidateState(s.ctx, []types.Market{invalidMarket}))
+}
+
+func (s *KeeperTestSuite) TestInvalidCreateDisabledNormalizeBy() {
+	marketBTCUSDT := btcusdt
+	marketETHUSDT := ethusdt
+
+	// create a valid markets
+	marketBTCUSDT.Ticker.Enabled = true
+	marketETHUSDT.Ticker.Enabled = false
+
+	s.Require().NoError(s.keeper.CreateMarket(s.ctx, marketETHUSDT))
+
+	// invalid market with a normalize pair that is in state but disabled
+	invalidMarket := marketBTCUSDT
+	invalidMarket.ProviderConfigs = append(invalidMarket.ProviderConfigs, types.ProviderConfig{
+		Name:            "huobi",
+		OffChainTicker:  "btc-usdt",
+		NormalizeByPair: &marketETHUSDT.Ticker.CurrencyPair,
+	})
+
+	s.Require().NoError(s.keeper.CreateMarket(s.ctx, invalidMarket))
+	s.Require().Error(s.keeper.ValidateState(s.ctx, []types.Market{invalidMarket}))
+}
+
+func (s *KeeperTestSuite) TestDeleteMarket() {
+	// create a valid markets
+	btcCopy := btcusdt
+	btcCopy.Ticker.Enabled = true
+	s.Require().NoError(s.keeper.CreateMarket(s.ctx, btcCopy))
+
+	// invalid delete will return nil - idempotent
+	deleted, err := s.keeper.DeleteMarket(s.ctx, "foobar")
+	s.Require().NoError(err)
+	s.Require().False(deleted)
+
+	// cannot delete enabled markets
+	deleted, err = s.keeper.DeleteMarket(s.ctx, btcCopy.Ticker.String())
+	s.Require().Error(err)
+	s.Require().False(deleted)
+
+	// disable market
+	btcCopy.Ticker.Enabled = false
+	s.Require().NoError(s.keeper.UpdateMarket(s.ctx, btcCopy))
+
+	// delete disabled markets
+	deleted, err = s.keeper.DeleteMarket(s.ctx, btcCopy.Ticker.String())
+	s.Require().NoError(err)
+	s.Require().True(deleted)
+
+	_, err = s.keeper.GetMarket(s.ctx, btcCopy.Ticker.String())
+	s.Require().Error(err)
+}
+
+func (s *KeeperTestSuite) TestEnableDisableMarket() {
+	// create a valid markets
+	s.Require().NoError(s.keeper.CreateMarket(s.ctx, btcusdt))
+
+	// invalid enable/disable fails
+	s.Require().Error(s.keeper.EnableMarket(s.ctx, "foobar"))
+	s.Require().Error(s.keeper.DisableMarket(s.ctx, "foobar"))
+
+	// valid enable works
+	s.Require().NoError(s.keeper.EnableMarket(s.ctx, btcusdt.Ticker.String()))
+	market, err := s.keeper.GetMarket(s.ctx, btcusdt.Ticker.String())
+	s.Require().NoError(err)
+	s.Require().True(market.Ticker.Enabled)
+
+	// valid disable works
+	s.Require().NoError(s.keeper.DisableMarket(s.ctx, btcusdt.Ticker.String()))
+	market, err = s.keeper.GetMarket(s.ctx, btcusdt.Ticker.String())
+	s.Require().NoError(err)
+	s.Require().False(market.Ticker.Enabled)
 }

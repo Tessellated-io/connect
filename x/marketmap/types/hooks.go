@@ -3,6 +3,8 @@ package types
 import sdk "github.com/cosmos/cosmos-sdk/types"
 
 // MarketMapHooks is the interface that defines the hooks that can be integrated by other modules.
+//
+//go:generate mockery --name MarketMapHooks
 type MarketMapHooks interface {
 	// AfterMarketCreated is called after CreateMarket is called.
 	AfterMarketCreated(ctx sdk.Context, market Market) error
@@ -12,6 +14,9 @@ type MarketMapHooks interface {
 
 	// AfterMarketGenesis is called after x/marketmap init genesis.
 	AfterMarketGenesis(ctx sdk.Context, tickers map[string]Market) error
+
+	// AfterMarketRemoved is called after a market is removed.
+	AfterMarketRemoved(ctx sdk.Context, key string) error
 }
 
 var _ MarketMapHooks = &MultiMarketMapHooks{}
@@ -52,5 +57,37 @@ func (mh MultiMarketMapHooks) AfterMarketGenesis(ctx sdk.Context, markets map[st
 	return nil
 }
 
+// AfterMarketRemoved calls all AfterMarketRemoved hooks registered to the MultiMarketMapHooks.
+func (mh MultiMarketMapHooks) AfterMarketRemoved(ctx sdk.Context, key string) error {
+	for i := range mh {
+		if err := mh[i].AfterMarketRemoved(ctx, key); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // MarketMapHooksWrapper is a wrapper for modules to inject MarketMapHooks using depinject.
 type MarketMapHooksWrapper struct{ MarketMapHooks }
+
+var _ MarketMapHooks = &NoopMarketMapHooks{}
+
+// NoopMarketMapHooks defines market map hooks that are a no-op.
+type NoopMarketMapHooks struct{}
+
+func (n *NoopMarketMapHooks) AfterMarketCreated(_ sdk.Context, _ Market) error {
+	return nil
+}
+
+func (n *NoopMarketMapHooks) AfterMarketUpdated(_ sdk.Context, _ Market) error {
+	return nil
+}
+
+func (n *NoopMarketMapHooks) AfterMarketGenesis(_ sdk.Context, _ map[string]Market) error {
+	return nil
+}
+
+func (n *NoopMarketMapHooks) AfterMarketRemoved(_ sdk.Context, _ string) error {
+	return nil
+}

@@ -80,7 +80,7 @@ func (pc *PoolConfig) ValidateBasic() error {
 }
 
 // MustToJSON converts the pool configuration to JSON.
-func (pc PoolConfig) MustToJSON() string {
+func (pc *PoolConfig) MustToJSON() string {
 	b, err := json.Marshal(pc)
 	if err != nil {
 		panic(err)
@@ -92,26 +92,28 @@ var (
 	// DefaultETHAPIConfig is the default configuration for the Uniswap API. Specifically this is for
 	// Ethereum mainnet.
 	DefaultETHAPIConfig = config.APIConfig{
-		Name:             fmt.Sprintf("%s%s%s", BaseName, NameSeparator, constants.ETHEREUM),
-		Atomic:           true,
-		Enabled:          true,
-		Timeout:          1000 * time.Millisecond,
-		Interval:         2000 * time.Millisecond,
-		ReconnectTimeout: 2000 * time.Millisecond,
-		MaxQueries:       1,
-		Endpoints:        []config.Endpoint{{URL: ETH_URL}},
+		Name:              fmt.Sprintf("%s%s%s", BaseName, NameSeparator, constants.ETHEREUM),
+		Atomic:            true,
+		Enabled:           true,
+		Timeout:           1000 * time.Millisecond,
+		Interval:          2000 * time.Millisecond,
+		ReconnectTimeout:  2000 * time.Millisecond,
+		MaxQueries:        1,
+		Endpoints:         []config.Endpoint{{URL: ETH_URL}},
+		MaxBlockHeightAge: 30 * time.Second,
 	}
 
 	// DefaultBaseAPIConfig is the default configuration for the Uniswap API. Specifically this is for
 	// Base mainnet.
 	DefaultBaseAPIConfig = config.APIConfig{
-		Name:             fmt.Sprintf("%s%s%s", BaseName, NameSeparator, constants.BASE),
-		Atomic:           true,
-		Enabled:          true,
-		Timeout:          1000 * time.Millisecond,
-		Interval:         2000 * time.Millisecond,
-		ReconnectTimeout: 2000 * time.Millisecond,
-		MaxQueries:       1,
-		Endpoints:        []config.Endpoint{{URL: BASE_URL}},
+		Name:              fmt.Sprintf("%s%s%s", BaseName, NameSeparator, constants.BASE),
+		Atomic:            true,
+		Enabled:           true,
+		Timeout:           1000 * time.Millisecond,
+		Interval:          2000 * time.Millisecond,
+		ReconnectTimeout:  2000 * time.Millisecond,
+		MaxQueries:        1,
+		Endpoints:         []config.Endpoint{{URL: BASE_URL}},
+		MaxBlockHeightAge: 30 * time.Second,
 	}
 )

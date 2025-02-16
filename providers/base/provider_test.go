@@ -56,6 +56,7 @@ var (
 		WriteTimeout:                  config.DefaultWriteTimeout,
 		MaxReadErrorCount:             config.DefaultMaxReadErrorCount,
 		MaxSubscriptionsPerConnection: config.DefaultMaxSubscriptionsPerConnection,
+		MaxSubscriptionsPerBatch:      config.DefaultMaxSubscriptionsPerBatch,
 	}
 
 	wsCfgMultiplex = config.WebSocketConfig{
@@ -76,6 +77,7 @@ var (
 		WriteTimeout:                  config.DefaultWriteTimeout,
 		MaxReadErrorCount:             config.DefaultMaxReadErrorCount,
 		MaxSubscriptionsPerConnection: 1,
+		MaxSubscriptionsPerBatch:      config.DefaultMaxSubscriptionsPerBatch,
 	}
 
 	pairs = []slinkytypes.CurrencyPair{
@@ -592,6 +594,35 @@ func TestWebSocketProvider(t *testing.T) {
 			expectedPrices: map[slinkytypes.CurrencyPair]*big.Int{
 				pairs[0]: big.NewInt(100),
 			},
+		},
+		{
+			name: "does not update the base provider if the result is unchanged but the cache has no entry for the id",
+			handler: func() wshandlers.WebSocketQueryHandler[slinkytypes.CurrencyPair, *big.Int] {
+				// First response is valid and sets the data.
+				resolved := map[slinkytypes.CurrencyPair]providertypes.ResolvedResult[*big.Int]{
+					pairs[0]: {
+						Value:        big.NewInt(100),
+						Timestamp:    time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+						ResponseCode: providertypes.ResponseCodeUnchanged,
+					},
+				}
+
+				responses := []providertypes.GetResponse[slinkytypes.CurrencyPair, *big.Int]{
+					providertypes.NewGetResponse(resolved, nil),
+				}
+
+				return testutils.CreateWebSocketQueryHandlerWithGetResponses(
+					t,
+					time.Second,
+					logger,
+					responses,
+				)
+			},
+			pairs: []slinkytypes.CurrencyPair{
+				pairs[0],
+			},
+			cfg:            wsCfg,
+			expectedPrices: map[slinkytypes.CurrencyPair]*big.Int{},
 		},
 	}
 

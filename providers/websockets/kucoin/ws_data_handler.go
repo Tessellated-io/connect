@@ -81,7 +81,7 @@ func (h *WebSocketHandler) HandleMessage(
 		return resp, nil, nil
 	case PongMessage:
 		h.logger.Debug("received pong message")
-		return resp, nil, nil
+		return h.cache.NoPriceChangeResponse(), nil, nil
 	case AckMessage:
 		h.logger.Debug("received ack message; markets were successfully subscribed to")
 		return resp, nil, nil
@@ -119,7 +119,7 @@ func (h *WebSocketHandler) CreateMessages(
 		h.cache.Add(ticker)
 	}
 
-	return NewSubscribeRequestMessage(instruments)
+	return h.NewSubscribeRequestMessage(instruments)
 }
 
 // HeartBeatMessages is used to create the set of heartbeat messages to send to the KuCoin

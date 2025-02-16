@@ -287,6 +287,7 @@ func (k *Keeper) GetAllCurrencyPairs(ctx sdk.Context) []slinkytypes.CurrencyPair
 }
 
 // GetCurrencyPairMapping returns a CurrencyPair mapping by ID that have currently been stored to state.
+// NOTE: this map[] type should not be used by on-chain code.
 func (k *Keeper) GetCurrencyPairMapping(ctx sdk.Context) (map[uint64]slinkytypes.CurrencyPair, error) {
 	numPairs, err := k.numCPs.Get(ctx)
 	if err != nil {
@@ -297,6 +298,23 @@ func (k *Keeper) GetCurrencyPairMapping(ctx sdk.Context) (map[uint64]slinkytypes
 	k.IterateCurrencyPairs(ctx, func(cp slinkytypes.CurrencyPair, cps types.CurrencyPairState) {
 		pairs[cps.GetId()] = cp
 	})
+
+	return pairs, nil
+}
+
+// GetCurrencyPairMappingList returns a CurrencyPair mapping by ID that have currently been stored to state as a list.
+func (k *Keeper) GetCurrencyPairMappingList(ctx sdk.Context) ([]types.CurrencyPairMapping, error) {
+	pairs := make([]types.CurrencyPairMapping, 0)
+	// aggregate CurrencyPairs stored under KeyPrefixNonce
+	err := k.IterateCurrencyPairs(ctx, func(cp slinkytypes.CurrencyPair, cps types.CurrencyPairState) {
+		pairs = append(pairs, types.CurrencyPairMapping{
+			Id:           cps.GetId(),
+			CurrencyPair: cp,
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
 
 	return pairs, nil
 }
@@ -335,13 +353,13 @@ func (k *Keeper) IterateCurrencyPairs(ctx sdk.Context, cb func(cp slinkytypes.Cu
 // with the x/oracle module, the legacy Decimals function is used.
 func (k *Keeper) GetDecimalsForCurrencyPair(ctx sdk.Context, cp slinkytypes.CurrencyPair) (decimals uint64, err error) {
 	if k.mmKeeper == nil {
-		return uint64(cp.LegacyDecimals()), nil
+		return uint64(cp.LegacyDecimals()), nil //nolint:gosec
 	}
 
 	market, err := k.mmKeeper.GetMarket(ctx, cp.String())
 	if err != nil {
 		if errors.Is(err, collections.ErrNotFound) {
-			return uint64(cp.LegacyDecimals()), nil
+			return uint64(cp.LegacyDecimals()), nil //nolint:gosec
 		}
 
 		return 0, err
